@@ -1,0 +1,20 @@
+{
+  "name": "around",
+  "private": true,
+  "packageManager": "pnpm@10.17.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2"
+  },
+  "scripts": {
+    "build": "pnpm --filter @around/shared-types build && pnpm --filter @around/api build",
+    "dev:api": "pnpm --filter @around/shared-types build && pnpm --filter @around/api start:dev",
+    "dev:mobile": "pnpm --filter @around/shared-types build && pnpm --filter @around/mobile start",
+    "lint": "pnpm -r --if-present lint",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "format": "prettier --write ."
+  }
+}
