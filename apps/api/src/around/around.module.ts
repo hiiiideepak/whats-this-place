@@ -29,7 +29,7 @@ import { DeviceRateLimitGuard } from './rate-limit.guard.js';
           ),
           config.get<string>(
             'NOMINATIM_USER_AGENT',
-            'Around/0.1 (you@example.com)',
+            'Around/0.1 (https://github.com/hiiiideepak/whats-this-place)',
           ),
         ),
     },
@@ -41,6 +41,10 @@ import { DeviceRateLimitGuard } from './rate-limit.guard.js';
           config.get<string>(
             'OVERPASS_URL',
             'https://overpass-api.de/api/interpreter',
+          ),
+          config.get<string>(
+            'NOMINATIM_USER_AGENT',
+            'Around/0.1 (https://github.com/hiiiideepak/whats-this-place)',
           ),
         ),
     },

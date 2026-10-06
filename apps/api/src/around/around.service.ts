@@ -9,7 +9,12 @@ import type {
   PlaceSearchHit,
   Section,
 } from '@around/shared-types';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import {
   aroundCacheKey,
   encodeGeohash,
@@ -91,15 +96,22 @@ export class AroundService {
   }
 
   async search(query: string): Promise<PlaceSearchHit[]> {
-    const places = await this.resilience.run('nominatim', () =>
-      this.geocoding.search(query),
-    );
-    return places.map((place) => ({
-      name: place.name,
-      lat: place.lat,
-      lng: place.lng,
-      hierarchy: place.hierarchy,
-    }));
+    try {
+      const places = await this.resilience.run('nominatim', () =>
+        this.geocoding.search(query),
+      );
+      return places.map((place) => ({
+        name: place.name,
+        lat: place.lat,
+        lng: place.lng,
+        hierarchy: place.hierarchy,
+      }));
+    } catch (error) {
+      this.logger.warn(`nominatim search failed: ${messageOf(error)}`);
+      throw new ServiceUnavailableException(
+        'Place search is temporarily unavailable',
+      );
+    }
   }
 
   private async cachedSection(
@@ -321,5 +333,8 @@ function essentialLabel(kind: EssentialPlace['kind']): string {
 }
 
 function messageOf(error: unknown): string {
+  if (error instanceof Error && error.message === 'timeout') {
+    return 'This section took too long. Pull to refresh to try again.';
+  }
   return error instanceof Error ? error.message : 'unknown error';
 }

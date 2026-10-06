@@ -7,6 +7,7 @@ const DOWN_FOR_MS = 30_000;
 @Injectable()
 export class AroundCache implements OnModuleDestroy {
   private redis: Redis | null = null;
+  private connecting: Promise<Redis | null> | null = null;
   private unavailableUntil = 0;
   private readonly logger = new Logger(AroundCache.name);
 
@@ -57,8 +58,18 @@ export class AroundCache implements OnModuleDestroy {
     this.redis?.disconnect();
   }
 
-  private async client(): Promise<Redis | null> {
-    if (Date.now() < this.unavailableUntil) return null;
+  private client(): Promise<Redis | null> {
+    if (Date.now() < this.unavailableUntil) return Promise.resolve(null);
+    if (this.redis?.status === 'ready') return Promise.resolve(this.redis);
+    if (!this.connecting) {
+      this.connecting = this.connect().finally(() => {
+        this.connecting = null;
+      });
+    }
+    return this.connecting;
+  }
+
+  private async connect(): Promise<Redis | null> {
     try {
       if (!this.redis) {
         this.redis = new Redis(

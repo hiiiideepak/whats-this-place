@@ -1,7 +1,8 @@
 import type { NearbyPlace } from './places.provider.js';
 import { HttpError } from '../../resilience/retry.js';
 
-const PROVIDER_TIMEOUT_MS = 3_000;
+// Public Overpass often answers after the 3s budget used for the other providers.
+const PROVIDER_TIMEOUT_MS = 8_000;
 
 interface OverpassElement {
   type?: string;
@@ -39,7 +40,7 @@ export function overpassQuery(
   const clauses = filters
     .flatMap((filter) => [`node${filter}${around};`, `way${filter}${around};`])
     .join('');
-  return `[out:json][timeout:3];(${clauses});out center;`;
+  return `[out:json][timeout:8];(${clauses});out center;`;
 }
 
 export function mapOverpassElement(
@@ -77,6 +78,7 @@ export class OverpassPlacesProvider {
 
   constructor(
     private readonly endpoint: string,
+    private readonly userAgent: string,
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
@@ -100,8 +102,12 @@ export class OverpassPlacesProvider {
     try {
       const response = await this.fetchImpl(this.endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain', Accept: 'application/json' },
-        body,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: '*/*',
+          'User-Agent': this.userAgent,
+        },
+        body: `data=${encodeURIComponent(body)}`,
         signal: controller.signal,
       });
       if (!response.ok) throw new HttpError(response.status);

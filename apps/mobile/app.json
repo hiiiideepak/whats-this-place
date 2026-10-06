@@ -21,6 +21,14 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Around uses your location to summarize what is nearby."
+        }
+      ]
+    ]
   }
 }

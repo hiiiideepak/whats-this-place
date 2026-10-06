@@ -105,7 +105,9 @@ pnpm test
 pnpm lint
 ```
 
-The mobile shell shows the app name from `@around/shared-types` and the health line from `EXPO_PUBLIC_API_URL` (default `http://localhost:3000`). On a physical device, set that to your computer's LAN address. The Android emulator uses `http://10.0.2.2:3000`.
+The mobile app asks for location after a short explainer. If location is denied, blocked, or switched off, search a place instead. The radius chips (5 / 10 / 25 / custom) refetch each section on its own. Settings has kilometres or miles, and a placeholder for which sections open by default.
+
+`EXPO_PUBLIC_API_URL` defaults to `http://localhost:3000`. On a physical device, set that to your computer's LAN address. The Android emulator uses `http://10.0.2.2:3000`.
 
 Around, using Bengaluru as an example. Set `NOMINATIM_USER_AGENT` in `.env` to a real contact address before calling the public Nominatim service.
 
