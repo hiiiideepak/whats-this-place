@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AroundModule } from './around/around.module.js';
 import { HealthModule } from './health/health.module.js';
 
 @Module({
@@ -9,6 +10,7 @@ import { HealthModule } from './health/health.module.js';
       envFilePath: ['.env', '../../.env'],
     }),
     HealthModule,
+    AroundModule,
   ],
 })
 export class AppModule {}

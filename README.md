@@ -50,7 +50,7 @@ flowchart LR
 
 The API talks to providers through `GeocodingProvider`, `PlacesProvider`, and `EncyclopediaProvider`. Each section loads on its own and returns `status: ok | empty | error | not_found`. Etymology is summarized only from retrieved Wikipedia/Wikidata text. If that text is missing, the response is `not_found` and the model is not called.
 
-Step 1 (this commit) boots the monorepo, Compose, and `GET /health`. Provider calls land in the next steps.
+`GET /v1/around` loads each section on its own. Nominatim supplies the place hierarchy. Overpass supplies famous places and the nearest hospital, police station, and pharmacy, including ones past the selected radius. Eat, stay, and coffee stay `error` until a places key is configured. Redis caches successful sections. Postgres stores the geocoded place when it is reachable.
 
 ## Prerequisites
 
@@ -106,6 +106,16 @@ pnpm lint
 ```
 
 The mobile shell shows the app name from `@around/shared-types` and the health line from `EXPO_PUBLIC_API_URL` (default `http://localhost:3000`). On a physical device, set that to your computer's LAN address. The Android emulator uses `http://10.0.2.2:3000`.
+
+Around, using Bengaluru as an example. Set `NOMINATIM_USER_AGENT` in `.env` to a real contact address before calling the public Nominatim service.
+
+```bash
+curl -s "http://localhost:3000/v1/around?lat=12.9716&lng=77.5946&radius_km=10"
+curl -s "http://localhost:3000/v1/around/essentials?lat=12.9716&lng=77.5946&radius_km=10"
+curl -s "http://localhost:3000/v1/places/search?q=Mysuru"
+```
+
+Essentials still appear when the nearest hospital is farther than `radius_km`, with `distance_m` set. Famous places return `Nothing within X km` when both the requested radius and one expansion are empty. A second identical request should be fast once Redis is up, because the section was cached.
 
 ## Environment
 

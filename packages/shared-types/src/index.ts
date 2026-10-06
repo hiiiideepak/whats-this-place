@@ -10,11 +10,13 @@ export type {
   AroundMeta,
   AroundResponse,
   AroundSectionName,
+  AroundSectionResponse,
   EssentialKind,
   EssentialPlace,
   Etymology,
   PlaceCard,
   PlaceHierarchy,
+  PlaceSearchHit,
   Section,
   SectionStatus,
 } from './around.js';

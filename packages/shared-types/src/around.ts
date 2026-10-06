@@ -69,3 +69,15 @@ export interface AroundResponse {
 
 export type AroundSectionName =
   'about' | 'famous' | 'essentials' | 'eat' | 'stay' | 'coffee';
+
+export interface AroundSectionResponse<T> {
+  meta: AroundMeta;
+  section: Section<T>;
+}
+
+export interface PlaceSearchHit {
+  name: string;
+  lat: number;
+  lng: number;
+  hierarchy: PlaceHierarchy;
+}
