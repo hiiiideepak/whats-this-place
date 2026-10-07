@@ -21,7 +21,13 @@ interface QueryResponse {
   query?: {
     pages?: Record<
       string,
-      { extract?: string; pageprops?: { wikibase_item?: string } }
+      {
+        pageid?: number;
+        title?: string;
+        missing?: string | boolean;
+        extract?: string;
+        pageprops?: { wikibase_item?: string };
+      }
     >;
     geosearch?: GeoHit[];
     search?: Array<{ pageid?: number; title?: string }>;
@@ -39,8 +45,8 @@ export class WikipediaEncyclopediaProvider implements EncyclopediaProvider {
 
   async lookup(input: EncyclopediaLookup): Promise<SourceArticle | null> {
     const hit =
-      (await this.nearest(input.lat, input.lng)) ??
-      (input.name ? await this.byName(input.name) : null);
+      (await this.matchingName(input.names ?? [])) ??
+      (await this.nearest(input.lat, input.lng));
     if (!hit?.pageid || !hit.title) return null;
 
     const [wikitext, details] = await Promise.all([
@@ -68,16 +74,35 @@ export class WikipediaEncyclopediaProvider implements EncyclopediaProvider {
     return payload.query?.geosearch?.[0] ?? null;
   }
 
-  private async byName(name: string): Promise<GeoHit | null> {
+  private async matchingName(names: string[]): Promise<GeoHit | null> {
+    const seen = new Set<string>();
+    for (const name of names) {
+      const trimmed = name.trim();
+      const key = trimmed.toLowerCase();
+      if (!trimmed || seen.has(key)) continue;
+      seen.add(key);
+      const hit = await this.byTitle(trimmed);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  private async byTitle(name: string): Promise<GeoHit | null> {
     const payload = await this.get<QueryResponse>({
       action: 'query',
-      list: 'search',
-      srsearch: name,
-      srlimit: '1',
+      titles: name,
+      redirects: '1',
     });
-    const hit = payload.query?.search?.[0];
-    if (!hit?.pageid || !hit.title) return null;
-    return { pageid: hit.pageid, title: hit.title };
+    const page = Object.values(payload.query?.pages ?? {})[0];
+    if (
+      !page?.pageid ||
+      page.pageid < 1 ||
+      page.missing != null ||
+      !page.title
+    ) {
+      return null;
+    }
+    return { pageid: page.pageid, title: page.title };
   }
 
   private async wikitext(pageId: number): Promise<string | null> {

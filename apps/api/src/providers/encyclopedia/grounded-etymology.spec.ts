@@ -41,13 +41,20 @@ describe('groundedEtymology', () => {
   });
 
   it('maps a model refusal to not_found', async () => {
-    const result = await groundedEtymology(
+    const exact = await groundedEtymology(
+      'Unrelated geography.',
+      'https://en.wikipedia.org/wiki/Sample',
+      { summarize: async () => 'NOT_FOUND' },
+    );
+    const explained = await groundedEtymology(
       'Unrelated geography.',
       'https://en.wikipedia.org/wiki/Sample',
       {
-        summarize: async () => 'NOT_FOUND',
+        summarize: async () =>
+          'The source text does not state a name origin.\n\nNOT_FOUND',
       },
     );
-    expect(result).toEqual({ status: 'not_found' });
+    expect(exact).toEqual({ status: 'not_found' });
+    expect(explained).toEqual({ status: 'not_found' });
   });
 });

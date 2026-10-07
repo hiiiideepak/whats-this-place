@@ -30,7 +30,10 @@ import {
   type SummaryClient,
 } from '../providers/encyclopedia/grounded-etymology.js';
 import { excerpt } from '../providers/encyclopedia/wiki-text.js';
-import type { GeocodingProvider } from '../providers/geocoding/geocoding.provider.js';
+import type {
+  GeocodedPlace,
+  GeocodingProvider,
+} from '../providers/geocoding/geocoding.provider.js';
 import type {
   NearbyPlace,
   PlaceCategory,
@@ -187,7 +190,7 @@ export class AroundService {
       void this.placeStore.save(place).catch((error: unknown) => {
         this.logger.warn(`place save skipped: ${messageOf(error)}`);
       });
-      const story = await this.loadStory(lat, lng, place.name);
+      const story = await this.loadStory(lat, lng, placeNames(place));
       return {
         status: 'ok',
         data: {
@@ -206,11 +209,11 @@ export class AroundService {
   private async loadStory(
     lat: number,
     lng: number,
-    name: string,
+    names: string[],
   ): Promise<{ significance?: string; etymology: AboutPlace['etymology'] }> {
     try {
       const article = await this.resilience.run('wikipedia', () =>
-        this.encyclopedia.lookup({ lat, lng, name }),
+        this.encyclopedia.lookup({ lat, lng, names }),
       );
       if (!article) return { etymology: { status: 'not_found' } };
       const cached = await this.etymologyStore.get(article.placeKey);
@@ -410,6 +413,17 @@ function asEssentials(
   section: Section<AboutPlace | PlaceCard | EssentialPlace>,
 ): Section<EssentialPlace> {
   return section as Section<EssentialPlace>;
+}
+
+function placeNames(place: GeocodedPlace): string[] {
+  const names = [
+    place.hierarchy.locality,
+    place.hierarchy.city,
+    place.hierarchy.district,
+    place.hierarchy.state,
+    place.name,
+  ];
+  return [...new Set(names.filter((name): name is string => Boolean(name)))];
 }
 
 function essentialLabel(kind: EssentialPlace['kind']): string {

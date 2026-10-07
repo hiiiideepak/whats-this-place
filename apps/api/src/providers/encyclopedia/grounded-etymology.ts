@@ -4,7 +4,13 @@ export interface SummaryClient {
   summarize(sourceText: string): Promise<string>;
 }
 
-const NO_SOURCE = /^(not_found|no reliable information found)\.?$/i;
+function isRefusal(summary: string): boolean {
+  const flat = summary.replace(/\s+/g, ' ').trim();
+  if (!flat) return true;
+  if (/^(not_found|no reliable information found)\.?$/i.test(flat)) return true;
+  // Models often explain the miss and then emit the required token.
+  return /\bNOT_FOUND\b/.test(summary);
+}
 
 export async function groundedEtymology(
   sourceText: string | null | undefined,
@@ -18,7 +24,7 @@ export async function groundedEtymology(
   }
 
   const summary = (await client.summarize(text)).trim();
-  if (!summary || NO_SOURCE.test(summary)) {
+  if (isRefusal(summary)) {
     return { status: 'not_found' };
   }
 

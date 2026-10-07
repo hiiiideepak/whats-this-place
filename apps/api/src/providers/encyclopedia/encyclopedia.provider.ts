@@ -9,7 +9,8 @@ export interface SourceArticle {
 export interface EncyclopediaLookup {
   lat: number;
   lng: number;
-  name?: string;
+  /** Most specific place name first: locality, city, district, state. */
+  names?: string[];
 }
 
 export interface EncyclopediaProvider {
