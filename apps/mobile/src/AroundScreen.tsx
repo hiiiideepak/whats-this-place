@@ -37,6 +37,17 @@ import { locate } from './locate';
 import { SettingsScreen, useDistanceUnit } from './SettingsScreen';
 
 const EXPLAINER_KEY = 'around.explainerSeen';
+const SNAPSHOT_KEY = 'around.snapshot';
+
+interface OfflineSnapshot {
+  savedAt: string;
+  lat: number;
+  lng: number;
+  radiusKm: number;
+  sections: Partial<
+    Record<AroundSectionName, AroundSectionResponse<SectionPayload>>
+  >;
+}
 
 const SECTION_TITLES: Record<AroundSectionName, string> = {
   about: 'About this place',
@@ -193,6 +204,22 @@ function Summary({
   const [customError, setCustomError] = useState<string | null>(null);
   const [movedM, setMovedM] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [snapshot, setSnapshot] = useState<OfflineSnapshot | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void AsyncStorage.getItem(SNAPSHOT_KEY).then((raw) => {
+      if (cancelled || !raw) return;
+      try {
+        setSnapshot(JSON.parse(raw) as OfflineSnapshot);
+      } catch {
+        // A corrupt snapshot is ignored; the next successful load replaces it.
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const results = useQueries({
     queries: SECTION_ORDER.map((section) => ({
@@ -204,6 +231,38 @@ function Summary({
   const updatedAt = results.reduce((latest, result) => {
     return Math.max(latest, result.dataUpdatedAt);
   }, 0);
+  const liveFailed =
+    results.length > 0 &&
+    results.every((result) => result.isError || result.isFetched) &&
+    results.every((result) => !result.data) &&
+    results.some((result) => result.isError);
+  const savedSections: OfflineSnapshot['sections'] = {};
+  SECTION_ORDER.forEach((section, index) => {
+    const data = results[index]?.data;
+    const status = data?.section.status;
+    if (data && (status === 'ok' || status === 'empty')) {
+      savedSections[section] = data;
+    }
+  });
+  const savedKey = JSON.stringify(savedSections);
+
+  useEffect(() => {
+    if (savedKey === '{}') return;
+    let cancelled = false;
+    const next: OfflineSnapshot = {
+      savedAt: new Date().toISOString(),
+      lat,
+      lng,
+      radiusKm,
+      sections: JSON.parse(savedKey) as OfflineSnapshot['sections'],
+    };
+    void AsyncStorage.setItem(SNAPSHOT_KEY, JSON.stringify(next)).then(() => {
+      if (!cancelled) setSnapshot(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [savedKey, lat, lng, radiusKm]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -305,6 +364,13 @@ function Summary({
         </View>
       ) : null}
       {customError ? <Text style={styles.error}>{customError}</Text> : null}
+      {liveFailed ? (
+        <Text style={styles.error}>
+          {snapshot
+            ? `Offline, last updated at ${new Date(snapshot.savedAt).toLocaleString()}`
+            : 'Offline. No saved summary yet.'}
+        </Text>
+      ) : null}
       <Text style={styles.metaLine}>
         {updatedAt > 0
           ? `Updated ${new Date(updatedAt).toLocaleTimeString()}`
@@ -320,6 +386,7 @@ function Summary({
           section={section}
           unit={unit}
           query={results[index]}
+          saved={snapshot?.sections[section]}
         />
       ))}
       <Text style={styles.metaLine}>
@@ -333,13 +400,16 @@ function SectionCard({
   section,
   unit,
   query,
+  saved,
 }: {
   section: AroundSectionName;
   unit: DistanceUnit;
   query: UseQueryResult<AroundSectionResponse<SectionPayload>> | undefined;
+  saved?: AroundSectionResponse<SectionPayload>;
 }) {
   const [open, setOpen] = useState(true);
-  const payload = query?.data?.section;
+  const payload =
+    query?.data?.section ?? (query?.isError ? saved?.section : undefined);
 
   return (
     <View style={styles.section}>
@@ -357,7 +427,7 @@ function SectionCard({
           {query == null || (query.isLoading && !query.data) ? (
             <SkeletonLines />
           ) : null}
-          {query?.isError ? (
+          {query?.isError && !payload ? (
             <Text style={styles.error}>Couldn&apos;t load this section.</Text>
           ) : null}
           {payload ? (

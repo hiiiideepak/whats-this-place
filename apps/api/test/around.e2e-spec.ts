@@ -7,13 +7,22 @@ import { App } from 'supertest/types.js';
 import { vi } from 'vitest';
 import { AroundModule } from '../src/around/around.module.js';
 import { AroundCache } from '../src/cache/around-cache.service.js';
+import { EtymologyRepository } from '../src/db/etymology.repository.js';
 import { PlacesRepository } from '../src/db/places.repository.js';
+import type { EncyclopediaProvider } from '../src/providers/encyclopedia/encyclopedia.provider.js';
+import type { SummaryClient } from '../src/providers/encyclopedia/grounded-etymology.js';
 import type { GeocodingProvider } from '../src/providers/geocoding/geocoding.provider.js';
 import type {
   NearbyQuery,
   PlacesProvider,
 } from '../src/providers/places/places.provider.js';
-import { GEOCODING, PLACES } from '../src/providers/tokens.js';
+import {
+  ENCYCLOPEDIA,
+  GEOCODING,
+  PLACES,
+  SUMMARIZER,
+} from '../src/providers/tokens.js';
+import { ProviderNotConfiguredError } from '../src/resilience/errors.js';
 
 class MemoryCache {
   private readonly store = new Map<string, string>();
@@ -90,6 +99,28 @@ describe('Around (e2e)', () => {
           },
         ]);
       }
+      if (
+        query.category === 'eat' ||
+        query.category === 'stay' ||
+        query.category === 'coffee'
+      ) {
+        if (query.category === 'eat' && query.lat === 3) {
+          return Promise.resolve([
+            {
+              id: 'mtr',
+              name: 'MTR',
+              category: 'restaurant',
+              lat: query.lat,
+              lng: query.lng,
+              rating: 4.5,
+              reviewCount: 200,
+            },
+          ]);
+        }
+        return Promise.reject(
+          new ProviderNotConfiguredError('Google Places is not configured.'),
+        );
+      }
       if (query.category === 'famous') {
         if (query.lat === 0 || query.radiusM < 10_000)
           return Promise.resolve([]);
@@ -107,8 +138,29 @@ describe('Around (e2e)', () => {
     }),
   };
 
+  const encyclopedia: EncyclopediaProvider = {
+    name: 'fake',
+    lookup: vi.fn((input: { lat: number }) => {
+      if (input.lat !== 2) return Promise.resolve(null);
+      return Promise.resolve({
+        placeKey: 'Q1',
+        title: 'Sample',
+        sourceUrl: 'https://en.wikipedia.org/wiki/Sample',
+        extract: 'Sample is a neighbourhood in the city.',
+        etymologyText: 'The name comes from a river.',
+      });
+    }),
+  };
+
+  const summarize = vi.fn(async (text: string) => `Grounded: ${text}`);
+  const summarizer: SummaryClient & { model: string } = {
+    model: 'test',
+    summarize,
+  };
+
   beforeEach(async () => {
     essentialCalls.count = 0;
+    summarize.mockClear();
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [ConfigModule.forRoot({ isGlobal: true }), AroundModule],
     })
@@ -120,6 +172,15 @@ describe('Around (e2e)', () => {
       .useClass(MemoryCache)
       .overrideProvider(PlacesRepository)
       .useValue({ save: () => Promise.resolve() })
+      .overrideProvider(ENCYCLOPEDIA)
+      .useValue(encyclopedia)
+      .overrideProvider(SUMMARIZER)
+      .useValue(summarizer)
+      .overrideProvider(EtymologyRepository)
+      .useValue({
+        get: () => Promise.resolve(null),
+        save: () => Promise.resolve(),
+      })
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -197,6 +258,32 @@ describe('Around (e2e)', () => {
       .get('/v1/around')
       .query({ lat: 999, lng: 77.5 })
       .expect(400);
+  });
+
+  it('summarizes etymology only from retrieved source text', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/v1/around/about')
+      .query({ lat: 2, lng: 77.5, radius_km: 10 })
+      .expect(200);
+    const body = response.body as { section: AroundResponse['about'] };
+    expect(summarize).toHaveBeenCalledWith('The name comes from a river.');
+    expect(body.section.data?.etymology).toEqual({
+      status: 'ok',
+      summary: 'Grounded: The name comes from a river.',
+      source_url: 'https://en.wikipedia.org/wiki/Sample',
+    });
+    expect(body.section.data?.significance).toContain('neighbourhood');
+  });
+
+  it('returns a ranked restaurant when the places provider has one', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/v1/around/eat')
+      .query({ lat: 3, lng: 77.5, radius_km: 5 })
+      .expect(200);
+    const body = response.body as { section: AroundResponse['eat'] };
+    expect(body.section.status).toBe('ok');
+    expect(body.section.items?.[0]?.name).toBe('MTR');
+    expect(body.section.searched_radius_km).toBe(10);
   });
 
   it('searches a place name', async () => {

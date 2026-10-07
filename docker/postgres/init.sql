@@ -19,3 +19,13 @@ CREATE TABLE IF NOT EXISTS places (
 );
 
 CREATE INDEX IF NOT EXISTS places_geog_idx ON places USING GIST (geog);
+
+CREATE TABLE IF NOT EXISTS etymology_summaries (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  place_key text NOT NULL UNIQUE,
+  summary text NOT NULL,
+  source_url text NOT NULL,
+  source_text_hash text NOT NULL,
+  model text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);

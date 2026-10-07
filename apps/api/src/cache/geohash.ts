@@ -63,5 +63,6 @@ export function aroundCacheKey(
   geohash: string,
   radiusKm: number,
 ): string {
-  return `around:v1:${geohash}:${section}:${radiusKm}`;
+  // v2 includes etymology in the about payload. Older v1 entries are left to expire.
+  return `around:v2:${geohash}:${section}:${radiusKm}`;
 }

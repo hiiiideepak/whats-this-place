@@ -27,6 +27,12 @@ export class CircuitBreaker {
       this.openUntil = 0;
       return result;
     } catch (error) {
+      if (
+        error instanceof Error &&
+        error.name === 'ProviderNotConfiguredError'
+      ) {
+        throw error;
+      }
       if (halfOpenTrial || this.failures + 1 >= this.threshold) {
         this.failures = this.threshold;
         this.openUntil = this.now() + this.openMs;

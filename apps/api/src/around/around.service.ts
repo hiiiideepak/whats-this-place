@@ -21,14 +21,28 @@ import {
   geohashPrecisionForRadius,
 } from '../cache/geohash.js';
 import { AroundCache } from '../cache/around-cache.service.js';
+import { EtymologyRepository } from '../db/etymology.repository.js';
 import { PlacesRepository } from '../db/places.repository.js';
 import { distanceMeters, mapsUrl } from '../geo/distance.js';
+import type { EncyclopediaProvider } from '../providers/encyclopedia/encyclopedia.provider.js';
+import {
+  groundedEtymology,
+  type SummaryClient,
+} from '../providers/encyclopedia/grounded-etymology.js';
+import { excerpt } from '../providers/encyclopedia/wiki-text.js';
 import type { GeocodingProvider } from '../providers/geocoding/geocoding.provider.js';
 import type {
   NearbyPlace,
+  PlaceCategory,
   PlacesProvider,
 } from '../providers/places/places.provider.js';
-import { GEOCODING, PLACES } from '../providers/tokens.js';
+import {
+  ENCYCLOPEDIA,
+  GEOCODING,
+  PLACES,
+  SUMMARIZER,
+} from '../providers/tokens.js';
+import { ProviderNotConfiguredError } from '../resilience/errors.js';
 import {
   nothingWithinMessage,
   rankPlaces,
@@ -46,7 +60,7 @@ const SECTION_TTL_SECONDS: Record<AroundSectionName, number> = {
   about: 30 * 24 * 60 * 60,
 };
 
-const LATER_SECTIONS = new Set<AroundSectionName>(['eat', 'stay', 'coffee']);
+const RANKED_SECTIONS = ['famous', 'eat', 'stay', 'coffee'] as const;
 
 @Injectable()
 export class AroundService {
@@ -55,9 +69,13 @@ export class AroundService {
   constructor(
     @Inject(GEOCODING) private readonly geocoding: GeocodingProvider,
     @Inject(PLACES) private readonly places: PlacesProvider,
+    @Inject(ENCYCLOPEDIA) private readonly encyclopedia: EncyclopediaProvider,
+    @Inject(SUMMARIZER)
+    private readonly summarizer: SummaryClient & { model: string },
     private readonly cache: AroundCache,
     private readonly resilience: ResilienceService,
     private readonly placeStore: PlacesRepository,
+    private readonly etymologyStore: EtymologyRepository,
   ) {}
 
   async getAround(query: AroundQueryDto): Promise<AroundResponse> {
@@ -146,13 +164,14 @@ export class AroundService {
     radiusKm: number,
   ): Promise<Section<AboutPlace | PlaceCard | EssentialPlace>> {
     if (name === 'about') return this.loadAbout(lat, lng);
-    if (name === 'famous') return this.loadFamous(lat, lng, radiusKm);
     if (name === 'essentials') return this.loadEssentials(lat, lng);
-    if (LATER_SECTIONS.has(name)) {
-      return Promise.resolve({
-        status: 'error',
-        message: 'This section is not available yet.',
-      });
+    if ((RANKED_SECTIONS as readonly string[]).includes(name)) {
+      return this.loadRanked(
+        name as (typeof RANKED_SECTIONS)[number],
+        lat,
+        lng,
+        radiusKm,
+      );
     }
     return Promise.resolve({ status: 'error', message: 'Unknown section' });
   }
@@ -168,12 +187,14 @@ export class AroundService {
       void this.placeStore.save(place).catch((error: unknown) => {
         this.logger.warn(`place save skipped: ${messageOf(error)}`);
       });
+      const story = await this.loadStory(lat, lng, place.name);
       return {
         status: 'ok',
         data: {
           name: place.name,
           hierarchy: place.hierarchy,
-          etymology: { status: 'not_found' },
+          significance: story.significance,
+          etymology: story.etymology,
         },
       };
     } catch (error) {
@@ -182,19 +203,77 @@ export class AroundService {
     }
   }
 
-  private async loadFamous(
+  private async loadStory(
+    lat: number,
+    lng: number,
+    name: string,
+  ): Promise<{ significance?: string; etymology: AboutPlace['etymology'] }> {
+    try {
+      const article = await this.resilience.run('wikipedia', () =>
+        this.encyclopedia.lookup({ lat, lng, name }),
+      );
+      if (!article) return { etymology: { status: 'not_found' } };
+      const cached = await this.etymologyStore.get(article.placeKey);
+      if (cached) {
+        return {
+          significance: article.extract
+            ? excerpt(article.extract, 500)
+            : undefined,
+          etymology: {
+            status: 'ok',
+            summary: cached.summary,
+            source_url: cached.sourceUrl,
+          },
+        };
+      }
+      const etymology = await groundedEtymology(
+        article.etymologyText,
+        article.sourceUrl,
+        this.summarizer,
+      );
+      if (
+        etymology.status === 'ok' &&
+        etymology.summary &&
+        etymology.source_url
+      ) {
+        void this.etymologyStore
+          .save({
+            placeKey: article.placeKey,
+            summary: etymology.summary,
+            sourceUrl: etymology.source_url,
+            sourceText: article.etymologyText ?? etymology.summary,
+            model: this.summarizer.model,
+          })
+          .catch((error: unknown) => {
+            this.logger.warn(`etymology save skipped: ${messageOf(error)}`);
+          });
+      }
+      return {
+        significance: article.extract
+          ? excerpt(article.extract, 500)
+          : undefined,
+        etymology,
+      };
+    } catch (error) {
+      this.logger.warn(`wikipedia failed: ${messageOf(error)}`);
+      return { etymology: { status: 'not_found' } };
+    }
+  }
+
+  private async loadRanked(
+    category: (typeof RANKED_SECTIONS)[number],
     lat: number,
     lng: number,
     radiusKm: number,
   ): Promise<Section<PlaceCard>> {
     try {
       let searched = radiusKm;
-      let places = await this.fetchPlaces(lat, lng, radiusKm * 1000, 'famous');
+      let places = await this.fetchPlaces(lat, lng, radiusKm * 1000, category);
       if (places.length < 3) {
         const expanded = Math.min(radiusKm * 2, 50);
         if (expanded > searched) {
           searched = expanded;
-          places = await this.fetchPlaces(lat, lng, expanded * 1000, 'famous');
+          places = await this.fetchPlaces(lat, lng, expanded * 1000, category);
         }
       }
       const items = this.rankedCards(places, lat, lng, searched).slice(0, 20);
@@ -208,7 +287,10 @@ export class AroundService {
       }
       return { status: 'ok', searched_radius_km: searched, items };
     } catch (error) {
-      this.logger.warn(`overpass famous failed: ${messageOf(error)}`);
+      if (error instanceof ProviderNotConfiguredError) {
+        return { status: 'error', message: error.message };
+      }
+      this.logger.warn(`${category} failed: ${messageOf(error)}`);
       return { status: 'error', message: messageOf(error) };
     }
   }
@@ -256,9 +338,13 @@ export class AroundService {
     lat: number,
     lng: number,
     radiusM: number,
-    category: 'famous' | 'essentials',
+    category: PlaceCategory,
   ): Promise<NearbyPlace[]> {
-    return this.resilience.run('overpass', () =>
+    const provider =
+      category === 'essentials' || category === 'famous'
+        ? 'overpass'
+        : 'google';
+    return this.resilience.run(provider, () =>
       this.places.nearby({ lat, lng, radiusM, category }),
     );
   }

@@ -22,7 +22,7 @@ describe('geohashPrecisionForRadius', () => {
 describe('aroundCacheKey', () => {
   it('includes version, geohash, section, and radius', () => {
     expect(aroundCacheKey('essentials', 'tdr', 10)).toBe(
-      'around:v1:tdr:essentials:10',
+      'around:v2:tdr:essentials:10',
     );
   });
 });

@@ -121,4 +121,10 @@ Essentials still appear when the nearest hospital is farther than `radius_km`, w
 
 ## Environment
 
-Every key is documented in [`.env.example`](.env.example). `GOOGLE_PLACES_API_KEY` and `ANTHROPIC_API_KEY` can stay empty until those steps.
+Every key is documented in [`.env.example`](.env.example).
+
+About this place looks up the nearest English Wikipedia article, keeps the etymology, name, and history sections, and asks the model to summarize only that text. If `ANTHROPIC_API_KEY` is empty, the app shows a short excerpt of the same text. If there is no source text, the section says "No reliable information found" and the model is not called. A successful summary is stored in Postgres by place id and always includes the Wikipedia URL.
+
+Eat, stay, and coffee use Google Places when `GOOGLE_PLACES_API_KEY` is set. Without a key those three sections return an error and the rest of the screen still loads. Google fields stay in Redis for 24 hours and are not written to Postgres.
+
+If the phone cannot reach the API, the last successful summary is shown with "Offline, last updated at …".
